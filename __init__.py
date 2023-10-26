@@ -1,0 +1,1 @@
+"""The HibouAir sensor integration."""
