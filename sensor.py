@@ -1,123 +1,128 @@
 import asyncio
 import logging
 import json
-from datetime import timedelta
+from datetime import timedelta 
 import aiohttp
 
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
-from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_NAME, DEVICE_CLASS_TEMPERATURE, DEVICE_CLASS_HUMIDITY, DEVICE_CLASS_PRESSURE, DEVICE_CLASS_ILLUMINANCE, DEVICE_CLASS_CO2, TEMP_CELSIUS, PERCENTAGE, PRESSURE_HPA, CONCENTRATION_PARTS_PER_MILLION
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import NAME, SENSOR,APIKEY,CODE,DEFAULT_SCAN_INTERVAL,INTERVAL
+from . import DOMAIN
+from .const import SENSOR,APIKEY,CODE
 
-_LOGGER = logging.getLogger('hibouair')
-
-DEFAULT_NAME = "HibouAir"
-DEFAULT_INTERVAL = timedelta(minutes=5)
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(INTERVAL, default=DEFAULT_INTERVAL): cv.time_period,
-    }
-)
+_LOGGER = logging.getLogger(__name__)
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    name = NAME
-    sensor_id = SENSOR
-    api_key = APIKEY
-    code = CODE
-    interval = INTERVAL
-
-    sensors = []
+    """Set up the Hibouair platform."""
+    coordinator = DataUpdateCoordinator(
+        hass,
+        _LOGGER,
+        name="Hibouair Sensor",
+        update_method=async_update_data,
+        update_interval=timedelta(minutes=10),
+    )
     
-    for attribute in ['p', 't', 'h', 'voc', 'als', 'pm1', 'pm25', 'pm10', 'co2', 'ts']:
-        sensor = HibouAirSensor(hass, name, sensor_id, api_key,code, interval, attribute)
-        sensors.append(sensor)
+    await coordinator.async_refresh()
+
+    async_add_entities([HibouairSensor(coordinator, "temperature", "Temperature", "°C", "mdi:thermometer"),
+                        HibouairSensor(coordinator, "humidity", "Humidity", "%rH", "mdi:water-percent"),
+                        HibouairSensor(coordinator, "pm1", "PM1", "µg/m³", "mdi:blur"),
+                        HibouairSensor(coordinator, "pm25", "PM2.5", "µg/m³", "mdi:blur"),
+                        HibouairSensor(coordinator, "pm10", "PM10", "µg/m³", "mdi:blur"),
+                        HibouairSensor(coordinator, "voc", "VOC", "ppm", "mdi:cloud"),
+                        HibouairSensor(coordinator, "co2", "CO2", "ppm", "mdi:molecule-co2"),
+                        HibouairSensor(coordinator, "pressure", "Pressure", "mbar", "mdi:gauge"),
+                        HibouairSensor(coordinator, "ts", "Last updated", "", "mdi:calendar-clock"),
+                        HibouairSensor(coordinator, "als", "Light", "lux", "mdi:brightness-7")])
+
+async def async_update_data():
+    """Fetch data from your data source and return it."""
+    try:
+        url = f"https://www.hibouconnect.com/tapi/current"
+        headers = {
+            'sensor': SENSOR,
+            'api-key': APIKEY,
+            'code': CODE,
+            #'app': 'hibou5775',
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as response:
+                data = await response.text()
+                parsed_data = json.loads(data)
+                temperature = parsed_data.get("t")
+                humidity = parsed_data.get("h")
+                pm1 = parsed_data.get("pm1")
+                pm25 = parsed_data.get("pm25")
+                pm10 = parsed_data.get("pm10")
+                voc = parsed_data.get("voc")
+                co2 = parsed_data.get("co2")
+                pressure = parsed_data.get("p")
+                als = parsed_data.get("als")
+                ts = parsed_data.get("ts")
+                _LOGGER.error("API here %s",parsed_data)
+
+                return {
+                    'temperature': temperature,
+                    'humidity': humidity,
+                    'pm1': pm1,
+                    'pm25': pm25,
+                    'pm10': pm10,
+                    'voc': voc,
+                    'co2': co2,
+                    'als': als,
+                    'pressure': pressure,
+                    'ts': ts
+                }
+                
+    except Exception as e:
+        _LOGGER.error("Error updating HibouAir sensor: %s", e)
+    # Replace with your actual data retrieval logic
+    # return {
+    #     'temperature': 25.5,
+    #     'humidity': 50.0,
+    #     'pm1': 10,
+    #     'pm25': 25,
+    #     'pm10': 50,
+    #     'voc': 300,
+    #     'co2': 500,
+    #     'als': 200
+    # }
     
-    async_add_entities(sensors, update_before_add=True)
 
-class HibouAirSensor(Entity):
-    def __init__(self, hass, name, sensor_id, api_key,code, interval, attribute):
-        self._hass = hass
-        self._name = f"{name} {attribute}"
-        self._sensor_id = sensor_id
-        self._api_key = api_key
-        self._code = code
-        self._state = None
-        self._attribute = attribute
-        self._unit = None
-        self._device_class = None
-        self._interval = interval
+class HibouairSensor(Entity):
+    """Representation of a Hibouair sensor."""
 
-        if attribute == 'p':
-            self._name = "HibouAir Pressure"
-            self._unit = PRESSURE_HPA
-            self._device_class = DEVICE_CLASS_PRESSURE
-            self._friendly_name="Pressure"
-        elif attribute == 't':
-            self._name = "HibouAir Temperature"
-            self._unit = TEMP_CELSIUS
-            self._device_class = DEVICE_CLASS_TEMPERATURE
-            self._friendly_name="Temperature"
-        elif attribute == 'h':
-            self._name = "HibouAir Humidity"
-            self._unit = PERCENTAGE
-            self._device_class = DEVICE_CLASS_HUMIDITY
-            self._friendly_name="Humidity"
-        elif attribute == 'als':
-            self._name = "HibouAir Light"
-            self._unit = 'lux'
-            self._device_class = DEVICE_CLASS_ILLUMINANCE
-            self._friendly_name="Light"
-        elif attribute == 'co2':
-            self._name = "HibouAir CO2"
-            self._unit = CONCENTRATION_PARTS_PER_MILLION
-            self._device_class = DEVICE_CLASS_CO2
-            self._friendly_name="CO2"
-        elif attribute == 'ts':
-            self._name = "HibouAir Last Update"
-            self._icon = "mdi:clock"
-            self._friendly_name="Last Update"
+    def __init__(self, coordinator, sensor_type, sensor_name, unit, icon):
+        """Initialize the sensor."""
+        self._coordinator = coordinator
+        self._sensor_type = sensor_type
+        self._sensor_name = sensor_name
+        self._unit = unit
+        self._icon = icon
+
 
     @property
     def name(self):
-        return self._name
+        """Return the name of the sensor."""
+        return f"Hibouair {self._sensor_name}"
 
     @property
     def state(self):
-        return self._state
-    
-    @property
-    def device_class(self):
-        return self._device_class
+        """Return the state of the sensor."""
+        data = self._coordinator.data
+        return data.get(self._sensor_type)
 
     @property
     def unit_of_measurement(self):
+        """Return the unit of measurement."""
         return self._unit
-
+    
     @property
-    def device_state_attributes(self):
-        return self._attributes
+    def icon(self):
+        """Return the icon to be displayed for this entity."""
+        return self._icon
 
     async def async_update(self):
-        try:
-            url = f"https://www.hibouconnect.com/tapi/current"
-            headers = {
-                'sensor': self._sensor_id,
-                'api-key': self._api_key,
-                'code': self._code,
-                'app': 'hibou5775',
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    data = await response.text()
-                    parsed_data = json.loads(data)
-                    self._state = parsed_data.get(self._attribute)
-
-        except Exception as e:
-            _LOGGER.error("Error updating HibouAir sensor: %s", e)
-                
+        """Update the sensor."""
+        await self._coordinator.async_request_refresh()

@@ -1,1 +1,2 @@
-"""The HibouAir sensor integration."""
+"""The Hibouair integration."""
+DOMAIN = "hibouair"
