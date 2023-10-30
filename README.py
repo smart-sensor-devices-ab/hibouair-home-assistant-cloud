@@ -1,7 +1,7 @@
 #add this lines to configuration.yaml
 sensor: 
     - platform: hibouair
-    scan_interval: 30
+    scan_interval: 120
 
 #Sample Entities Card configuration
 type: entities
