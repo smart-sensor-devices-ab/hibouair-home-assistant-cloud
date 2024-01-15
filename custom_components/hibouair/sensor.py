@@ -48,7 +48,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     )
 
 
-async def async_update_data():
+async def async_update_data(api_key, code):
     """Fetch data from your data source and return it."""
     try:
         url = f"https://www.hibouconnect.com/tapi/current"
